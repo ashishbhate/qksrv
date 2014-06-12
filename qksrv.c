@@ -14,6 +14,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -21,6 +23,7 @@
 #include <signal.h>
 #include <ctype.h>
 #include <time.h>
+#include <fcntl.h>
 
 #define BACKLOG 1000 // Pending connections
 #define PORT "8888"
@@ -93,7 +96,7 @@ int send_header(Request *request, int status_code, char *status_phrase) {
                     QKSRV_NAME,
                     server_time);
 
-    sendall_buffer(request->sockfd, header, strlen(header));
+    return sendall_buffer(request->sockfd, header, strlen(header));
 }
 
 void request_destroy(Request *request) {
@@ -200,12 +203,16 @@ void request_process(Request *request) {
     // Check if HTTPVersion is OK? Or just accept as HTTP10 if broken
     // if resource is OK
     char buf[MAXHEADERSIZE];
+    char tmp[1000];
     char *cur, *tmp_c;
     char *root_path;
     char *resource_path;
     char *real_resource_path;
+    off_t offset = 0;
     int tmp_i;
     int len;
+    int fd;
+    struct stat sb;
     cur = buf;
 
     tmp_i = sprintf(cur, "%s ", QKSRV_HTTPVERSION);
@@ -243,7 +250,16 @@ void request_process(Request *request) {
 
     if (!strncmp(real_resource_path, root_path, strlen(root_path))) {
         send_header(request, 200, "OK");
-        sendall_buffer(request->sockfd, "\r\n\r\nThere is nothing here", 25);
+        // check if directory
+        // send list
+        // else send file
+        stat(real_resource_path, &sb);
+        if (S_ISREG(sb.st_mode)) {
+            tmp_i = sprintf(tmp, "\r\nContent-Length: %ld\r\n\r\n", sb.st_size);
+            sendall_buffer(request->sockfd, tmp, strlen(tmp));
+            fd = open(real_resource_path, O_RDONLY);
+            sendfile(request->sockfd, fd, &offset, sb.st_size);
+        }
         close(request->sockfd);
         /*return;*/
     }
