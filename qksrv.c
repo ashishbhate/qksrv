@@ -4,6 +4,7 @@
  * * Fix request->resource allocations and deallocation
  * * split up request_process
  * make a macro out of request_destroy
+ * pthread/select/event loop
  */
 #include <stdio.h>
 #include <stdlib.h>
