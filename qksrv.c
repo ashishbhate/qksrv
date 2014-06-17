@@ -74,10 +74,24 @@ int sendall_buffer(int sock, char *buf, int len) {
         total = total + n;
         bytesleft = bytesleft - n;
     }
-        return n==-1?-1:0; // -1 on failure, 0 on success
+    return n==-1?-1:0; // -1 on failure, 0 on success
 }
 
-int sendall_file(){}
+int sendall_file(int sock, int fd, off_t *offset, size_t count ){
+
+    size_t total = 0;
+    ssize_t sent;
+
+    while(total < count) {
+        sent = sendfile(sock, fd, offset, count-total);
+        if (sent == -1) {
+            break;
+        }
+        total = total + sent;
+    }
+    return sent==-1?-1:0;
+
+}
 
 int send_header(Request *request, int status_code, char *status_phrase) {
 
@@ -258,7 +272,7 @@ void request_process(Request *request) {
             tmp_i = sprintf(tmp, "\r\nContent-Length: %ld\r\n\r\n", sb.st_size);
             sendall_buffer(request->sockfd, tmp, strlen(tmp));
             fd = open(real_resource_path, O_RDONLY);
-            sendfile(request->sockfd, fd, &offset, sb.st_size);
+            sendall_file(request->sockfd, fd, &offset, sb.st_size);
         }
         close(request->sockfd);
         /*return;*/
@@ -312,7 +326,7 @@ int main(void) {
 
     for(p = servinfo; p != NULL; p = p->ai_next) {
         if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-            perror("Error: Getting Socket descriptor: sockfd func:q");
+            perror("Error: Getting Socket descriptor: sockfd func");
             continue;
         }
 
