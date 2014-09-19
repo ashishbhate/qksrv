@@ -175,7 +175,6 @@ int dirlist(char *path, int sockfd){
     int n, i=0;
     struct stat sb;
     current_ptr = string;
-    printf("PATH:%s\n", path);
 
     current_ptr = append_or_sendandappend(string, current_ptr, "<html><title>", BUFFER, sockfd);
     current_ptr = append_or_sendandappend(string, current_ptr, path, BUFFER, sockfd);
@@ -189,7 +188,6 @@ int dirlist(char *path, int sockfd){
         current_ptr = append_or_sendandappend(string, current_ptr, "<li><a href=\"", BUFFER, sockfd);
         current_ptr = append_or_sendandappend(string, current_ptr, namelist[i]->d_name , BUFFER, sockfd);
         if (S_ISDIR(sb.st_mode)) { // directory
-            printf("%s is DIR", namelist[i]->d_name);
             current_ptr = append_or_sendandappend(string, current_ptr, "/" , BUFFER, sockfd);
         }
         current_ptr = append_or_sendandappend(string, current_ptr, "\">", BUFFER, sockfd);
@@ -344,10 +342,6 @@ void request_process(Request *request) {
     len = strlen(root_path);
     strncat(resource_path, request->resource, PATH_MAX-len-1);
     tmp_c = realpath(resource_path, real_resource_path);
-
-    printf("\nroot_path: %s\n",root_path);
-    printf("\nresource_path: %s\n",resource_path);
-    printf("\nreal_resource_path: %s\n",real_resource_path);
 
     // If realpath returns NULL we know the resource doesn't exist
     if (tmp_c == NULL) {
