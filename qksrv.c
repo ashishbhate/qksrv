@@ -125,7 +125,7 @@ int unselect_hidden(const struct dirent *dir) {
 }
 
 /* append "from" to "str" starting from "str_cur"
- * upto a maximum length of len characters
+ * with "len" being the maximum length of "str"
  * str -> pointer to beginning of string
  * str_len -> pointer to current position in string
  * from -> string to append
@@ -148,13 +148,9 @@ void *append_or_sendandappend(char *str, char *str_cur, char *from, size_t len, 
         }
         else {
          /*
-          * Should be
           *     fit as much
           *     send
           *     fit rest
-          * Is
-          *     send
-          *     fit hoping current fits
           */
             str_cur = (char *)mempcpy(str_cur, from, buffer_left);
             *str_cur = '\0';
@@ -364,9 +360,10 @@ void request_process(Request *request) {
             sendall_file(request->sockfd, fd, &offset, sb.st_size);
         }
         else if (S_ISDIR(sb.st_mode)) { // directory
-    //   check if index.html exists
-    //   else directory listing
-    //   send directory listing as index.html
+            //   TODO
+            //   check if index.html exists
+            //   else directory listing
+            //   send directory listing as index.html
             tmp_i = sprintf(tmp, "\r\n\r\n");
             sendall_buffer(request->sockfd, tmp, strlen(tmp));
             dirlist(real_resource_path, request->sockfd);
@@ -378,10 +375,6 @@ void request_process(Request *request) {
         /* bad request path */
     }
 
-    //
-    // if file
-    //  send file
-    //
     free(root_path);
     free(real_resource_path);
     free(resource_path);
