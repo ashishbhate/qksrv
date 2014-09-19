@@ -24,6 +24,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 #define BACKLOG 1000 // Pending connections
 #define PORT "8888"
@@ -31,6 +32,7 @@
 #define QKSRV_HTTPVERSION "HTTP/1.0"
 #define QKSRV_NAME "qksrv"
 #define DATETIMEFORMAT "%a, %d %b %y %T %Z"
+#define BUFFER 2048
 
 typedef enum {
     GET,
@@ -113,6 +115,99 @@ int send_header(Request *request, int status_code, char *status_phrase) {
     return sendall_buffer(request->sockfd, header, strlen(header));
 }
 
+void *mempcpy(void *dst, const void *src, size_t len) {
+/* implemented here since it's not in the standard*/
+    return (void*)(((char*)memcpy(dst, src, len)) + len);
+}
+
+int unselect_hidden(const struct dirent *dir) {
+    return !(dir->d_name[0] == '.');
+}
+
+/* append "from" to "str" starting from "str_cur"
+ * upto a maximum length of len characters
+ * str -> pointer to beginning of string
+ * str_len -> pointer to current position in string
+ * from -> string to append
+ * len -> maximum length of str
+ * sockfd -> socket to send to
+ *
+ * Return:
+ * 0 - On failure
+ * pointer to new current location in string on success
+ */
+void *append_or_sendandappend(char *str, char *str_cur, char *from, size_t len, int sockfd)
+{
+    size_t buffer_left, from_len;
+    int i=0;
+    buffer_left = len - (str_cur - str) - 1;
+    from_len = strlen(from);
+    while(from_len) {
+        if (buffer_left >= from_len) {
+            return (char *)mempcpy(str_cur, from, from_len);
+        }
+        else {
+         /*
+          * Should be
+          *     fit as much
+          *     send
+          *     fit rest
+          * Is
+          *     send
+          *     fit hoping current fits
+          */
+            str_cur = (char *)mempcpy(str_cur, from, buffer_left);
+            *str_cur = '\0';
+            sendall_buffer(sockfd, str, len);
+            str_cur = str;
+            from = from + buffer_left;
+            from_len = from_len - buffer_left;
+            buffer_left = len - 1;
+        }
+    }
+}
+
+int dirlist(char *path, int sockfd){
+    char string[BUFFER];
+    char *current_ptr, *tmp_str_c;
+    char tmp[PATH_MAX];
+    struct dirent **namelist;
+    int n, i=0;
+    struct stat sb;
+    current_ptr = string;
+    printf("PATH:%s\n", path);
+
+    current_ptr = append_or_sendandappend(string, current_ptr, "<html><title>", BUFFER, sockfd);
+    current_ptr = append_or_sendandappend(string, current_ptr, path, BUFFER, sockfd);
+    current_ptr = append_or_sendandappend(string, current_ptr,"</title><body><h2>", BUFFER, sockfd);
+    current_ptr = append_or_sendandappend(string, current_ptr, path, BUFFER, sockfd);
+    current_ptr = append_or_sendandappend(string, current_ptr, "</h2><hr><ul>", BUFFER, sockfd);
+    n = scandir(path, &namelist, unselect_hidden, alphasort);
+    while (i<n){
+        snprintf(tmp, PATH_MAX, "%s/%s", path, namelist[i]->d_name);
+        if (stat(tmp, &sb) < 0) {perror("BAD STAT!"); printf("%s", tmp);}
+        current_ptr = append_or_sendandappend(string, current_ptr, "<li><a href=\"", BUFFER, sockfd);
+        current_ptr = append_or_sendandappend(string, current_ptr, namelist[i]->d_name , BUFFER, sockfd);
+        if (S_ISDIR(sb.st_mode)) { // directory
+            printf("%s is DIR", namelist[i]->d_name);
+            current_ptr = append_or_sendandappend(string, current_ptr, "/" , BUFFER, sockfd);
+        }
+        current_ptr = append_or_sendandappend(string, current_ptr, "\">", BUFFER, sockfd);
+        current_ptr = append_or_sendandappend(string, current_ptr, namelist[i]->d_name , BUFFER, sockfd);
+        if (S_ISDIR(sb.st_mode)) { // directory
+            current_ptr = append_or_sendandappend(string, current_ptr, "/" , BUFFER, sockfd);
+        }
+        current_ptr = append_or_sendandappend(string, current_ptr, "</a>", BUFFER, sockfd);
+        free(namelist[i]);
+        i++;
+    }
+    current_ptr = append_or_sendandappend(string, current_ptr, "</ul><hr></body></html>", BUFFER, sockfd);
+    *current_ptr = '\0';
+    sendall_buffer(sockfd, string, strlen(string));
+    free(namelist);
+    return 0;
+}
+
 void request_destroy(Request *request) {
 
     free(request->resource);
@@ -130,7 +225,6 @@ void request_init(Request *request, int sockfd) {
     char *resource;
     pos = buf;
     cur = buf;
-
     count = recv(sockfd, buf, MAXHEADERSIZE-1, 0);
     if (count == -1) {
         perror("recv");
@@ -251,7 +345,11 @@ void request_process(Request *request) {
     strncat(resource_path, request->resource, PATH_MAX-len-1);
     tmp_c = realpath(resource_path, real_resource_path);
 
-    // If realpath returns NULL we know it the resource doesn't exist
+    printf("\nroot_path: %s\n",root_path);
+    printf("\nresource_path: %s\n",resource_path);
+    printf("\nreal_resource_path: %s\n",real_resource_path);
+
+    // If realpath returns NULL we know the resource doesn't exist
     if (tmp_c == NULL) {
         tmp_i = sprintf(cur, "404 File Not Found\r\nServer: Asd\r\nDate: Sat, 01 Feb 2014 21:01:57 GMT\r\nConnection: close\r\n\r\n404 Ra!");
         /*tmp_i = sprintf(cur, "404 File Not Found\r\n");*/
@@ -264,15 +362,20 @@ void request_process(Request *request) {
 
     if (!strncmp(real_resource_path, root_path, strlen(root_path))) {
         send_header(request, 200, "OK");
-        // check if directory
-        // send list
-        // else send file
         stat(real_resource_path, &sb);
-        if (S_ISREG(sb.st_mode)) {
+        if (S_ISREG(sb.st_mode)) { // regular file
             tmp_i = sprintf(tmp, "\r\nContent-Length: %ld\r\n\r\n", sb.st_size);
             sendall_buffer(request->sockfd, tmp, strlen(tmp));
             fd = open(real_resource_path, O_RDONLY);
             sendall_file(request->sockfd, fd, &offset, sb.st_size);
+        }
+        else if (S_ISDIR(sb.st_mode)) { // directory
+    //   check if index.html exists
+    //   else directory listing
+    //   send directory listing as index.html
+            tmp_i = sprintf(tmp, "\r\n\r\n");
+            sendall_buffer(request->sockfd, tmp, strlen(tmp));
+            dirlist(real_resource_path, request->sockfd);
         }
         close(request->sockfd);
         /*return;*/
@@ -282,14 +385,9 @@ void request_process(Request *request) {
     }
 
     //
-    // Check if folder
-    //  check if index.html exists
-    //   else directory listing
-    //   send directory listing as index.html
     // if file
     //  send file
     //
-    printf("Real Resource Path is\n%s\n", real_resource_path);
     free(root_path);
     free(real_resource_path);
     free(resource_path);
