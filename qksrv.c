@@ -101,16 +101,15 @@ int send_header(Request *request, int status_code, char *status_phrase) {
     char server_time[1000];
     time_t tmp_t;
     struct tm *tmp_st;
-    int tmp_i;
 
     tmp_t = time(NULL);
     tmp_st = localtime(&tmp_t);
     strftime(server_time, sizeof(server_time), DATETIMEFORMAT, tmp_st);
 
-    tmp_i = sprintf(header,"%s %d %s\r\nServer: %s\r\nDate: %s\r\nConnection: close",
-                    QKSRV_HTTPVERSION, status_code, status_phrase,
-                    QKSRV_NAME,
-                    server_time);
+    sprintf(header,"%s %d %s\r\nServer: %s\r\nDate: %s\r\nConnection: close",
+                                QKSRV_HTTPVERSION, status_code, status_phrase,
+                                QKSRV_NAME,
+                                server_time);
 
     return sendall_buffer(request->sockfd, header, strlen(header));
 }
@@ -139,7 +138,6 @@ int unselect_hidden(const struct dirent *dir) {
 void *append_or_sendandappend(char *str, char *str_cur, char *from, size_t len, int sockfd)
 {
     size_t buffer_left, from_len;
-    int i=0;
     buffer_left = len - (str_cur - str) - 1;
     from_len = strlen(from);
     while(from_len) {
@@ -161,11 +159,12 @@ void *append_or_sendandappend(char *str, char *str_cur, char *from, size_t len, 
             buffer_left = len - 1;
         }
     }
+    return str_cur;
 }
 
 int dirlist(char *path, int sockfd){
     char string[BUFFER];
-    char *current_ptr, *tmp_str_c;
+    char *current_ptr;
     char tmp[PATH_MAX];
     struct dirent **namelist;
     int n, i=0;
@@ -393,7 +392,7 @@ void handle_connection(int sockfd) {
 
 
 int main(void) {
-    int sockfd, new_sockfd, numbytes;
+    int sockfd, new_sockfd;
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage client_addr;
     socklen_t client_addr_size;
