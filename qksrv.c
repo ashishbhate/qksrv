@@ -300,9 +300,10 @@ void request_init(Request *request, int sockfd) {
 
 
 void request_process(Request *request) {
-    // Check if method is OK
-    // Check if HTTPVersion is OK? Or just accept as HTTP10 if broken
-    // if resource is OK
+    /* Convert strncat to mempcpy
+     * Add support for index.html files
+     * Complete 404 response output
+     */
     char buf[MAXHEADERSIZE];
     char tmp[1000];
     char *cur, *tmp_c;
@@ -339,6 +340,7 @@ void request_process(Request *request) {
     tmp_c = realpath(resource_path, real_resource_path);
 
     // If realpath returns NULL we know the resource doesn't exist
+    // so 404
     if (tmp_c == NULL) {
         tmp_i = sprintf(cur, "404 File Not Found\r\nServer: Asd\r\nDate: Sat, 01 Feb 2014 21:01:57 GMT\r\nConnection: close\r\n\r\n404 Ra!");
         /*tmp_i = sprintf(cur, "404 File Not Found\r\n");*/
@@ -349,6 +351,7 @@ void request_process(Request *request) {
         return;
     }
 
+    /* Path exists and is valid */
     if (!strncmp(real_resource_path, root_path, strlen(root_path))) {
         send_header(request, 200, "OK");
         stat(real_resource_path, &sb);
@@ -362,18 +365,22 @@ void request_process(Request *request) {
             //   TODO
             //   check if index.html exists
             //   else directory listing
-            //   send directory listing as index.html
+            //   send directory listing as index.html?
+            //      No, just send the director listing
+
             tmp_i = sprintf(tmp, "\r\n\r\n");
             sendall_buffer(request->sockfd, tmp, strlen(tmp));
             dirlist(real_resource_path, request->sockfd);
         }
-        close(request->sockfd);
-        /*return;*/
     }
     else {
         /* bad request path */
+        /* whats a bad request path?
+         * what should I return for a bad path
+         */
     }
 
+    close(request->sockfd);
     free(root_path);
     free(real_resource_path);
     free(resource_path);
