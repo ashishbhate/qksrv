@@ -33,6 +33,8 @@
 #define QKSRV_NAME "qksrv"
 #define DATETIMEFORMAT "%a, %d %b %y %T %Z"
 #define BUFFER 2048
+#define INDEX "index.html"
+#define INDEX_LEN 10
 
 typedef enum {
     GET,
@@ -300,9 +302,10 @@ void request_init(Request *request, int sockfd) {
 
 
 void request_process(Request *request) {
-    /* Convert strncat to mempcpy
-     * Add support for index.html files
+    /* TODO
+     * Convert strncat to mempcpy
      * Complete 404 response output
+     * Create a wrapper function called end_header to abstract away the "\r\n\r\n" strncat
      */
     char buf[MAXHEADERSIZE];
     char tmp[1000];
@@ -310,11 +313,12 @@ void request_process(Request *request) {
     char *root_path;
     char *resource_path;
     char *real_resource_path;
+    char *index_path;
     off_t offset = 0;
     int tmp_i;
     int len;
     int fd;
-    struct stat sb;
+    struct stat sb, sb_1;
     cur = buf;
 
     tmp_i = sprintf(cur, "%s ", QKSRV_HTTPVERSION);
@@ -355,22 +359,37 @@ void request_process(Request *request) {
     if (!strncmp(real_resource_path, root_path, strlen(root_path))) {
         send_header(request, 200, "OK");
         stat(real_resource_path, &sb);
-        if (S_ISREG(sb.st_mode)) { // regular file
+
+        if (S_ISREG(sb.st_mode)) { // resource requested is a regular file
             tmp_i = sprintf(tmp, "\r\nContent-Length: %ld\r\n\r\n", sb.st_size);
             sendall_buffer(request->sockfd, tmp, strlen(tmp));
             fd = open(real_resource_path, O_RDONLY);
             sendall_file(request->sockfd, fd, &offset, sb.st_size);
         }
-        else if (S_ISDIR(sb.st_mode)) { // directory
-            //   TODO
-            //   check if index.html exists
-            //   else directory listing
-            //   send directory listing as index.html?
-            //      No, just send the director listing
 
-            tmp_i = sprintf(tmp, "\r\n\r\n");
-            sendall_buffer(request->sockfd, tmp, strlen(tmp));
-            dirlist(real_resource_path, request->sockfd);
+        else if (S_ISDIR(sb.st_mode)) { // resource requested is a  directory
+
+            index_path = malloc(sizeof(char)*PATH_MAX);
+            tmp_c = mempcpy(index_path, real_resource_path,strlen(real_resource_path));
+            tmp_c = mempcpy(tmp_c, "/", 1);
+            tmp_c = mempcpy(tmp_c, INDEX, INDEX_LEN);
+            *tmp_c = '\0';
+            printf("%s", index_path);
+
+            if (!access(index_path, F_OK)) { // send index.html if it exists
+                // TODO Add mime-type
+                stat(index_path, &sb_1);
+                tmp_i = sprintf(tmp, "\r\nContent-Length: %ld\r\n\r\n", sb_1.st_size);
+                sendall_buffer(request->sockfd, tmp, strlen(tmp));
+                fd = open(index_path, O_RDONLY);
+                sendall_file(request->sockfd, fd, &offset, sb_1.st_size);
+            }
+
+            else { // else send directory listing
+                tmp_i = sprintf(tmp, "\r\n\r\n");
+                sendall_buffer(request->sockfd, tmp, strlen(tmp));
+                dirlist(real_resource_path, request->sockfd);
+            }
         }
     }
     else {
